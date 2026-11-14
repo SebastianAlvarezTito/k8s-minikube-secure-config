@@ -1,0 +1,18 @@
+
+apiVersion: v1                    # Los ConfigMaps pertenecen al grupo core "v1"
+kind: ConfigMap                   # Tipo de recurso
+metadata:
+  name: app-config                # Nombre que referenciará el backend en envFrom.configMapRef
+  namespace: practica-s08         # Namespace dedicado que aísla los recursos del laboratorio
+  labels:                         # Etiquetas: permiten filtrar con kubectl -l y documentan el recurso
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: practica-s08
+    app.kubernetes.io/component: configuration
+data:                             # Todos los valores de un ConfigMap deben ser cadenas (string)
+  # Nombre DNS del Service de MongoDB (03-mongo-stack.yaml). Dentro del mismo
+  # namespace basta el nombre corto; CoreDNS lo resuelve al ClusterIP interno.
+  DB_HOST: "mongo-service"
+  # Base de datos lógica que usará la aplicación (MongoDB la crea al primer uso).
+  DB_NAME: "practica_s08_db"
+
+  APP_PORT: "3000"

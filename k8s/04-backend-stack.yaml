@@ -1,0 +1,87 @@
+# =============================================================================
+# 04-backend-stack.yaml
+# Capa de aplicación: Deployment del backend + Service NodePort (S08 | AP6)
+# -----------------------------------------------------------------------------
+# PRERREQUISITO: la imagen "backend-s08:1.0" debe existir en el Docker de Minikube:
+#   eval $(minikube docker-env)            # (PowerShell: minikube docker-env | Invoke-Expression)
+#   docker build -t backend-s08:1.0 ./src
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-deployment
+  namespace: practica-s08
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: practica-s08
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2                     # Dos réplicas: el Service balancea la carga entre ellas
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend   # Debe coincidir con el selector del Service de abajo
+        app.kubernetes.io/component: api
+    spec:
+      containers:
+        - name: backend
+          image: backend-s08:1.0          # Imagen construida localmente (ver prerrequisito)
+          imagePullPolicy: Never          # Nunca descargar de un registro: usar la imagen local de Minikube
+          ports:
+            - containerPort: 3000         # Debe coincidir con APP_PORT del ConfigMap
+              name: http
+          # envFrom inyecta TODAS las claves del recurso como variables de entorno,
+          # sin listarlas una por una. Resultado dentro del contenedor:
+          #   del ConfigMap -> DB_HOST, DB_NAME, APP_PORT
+          #   del Secret    -> DB_USER, DB_PASS
+          envFrom:
+            - configMapRef:
+                name: app-config          # 01-app-configmap.yaml (datos públicos)
+            - secretRef:
+                name: db-secret           # 02-db-secret.yaml (kubelet decodifica el Base64 automáticamente)
+          # Probes: Kubernetes sabe cuándo enviar tráfico y cuándo reiniciar.
+          readinessProbe:                 # Solo recibe tráfico si /health responde 200 (BD conectada)
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:                  # /live no depende de la BD: evita reinicios en cascada si Mongo cae
+            httpGet:
+              path: /live
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          securityContext:                # Endurecimiento básico del contenedor
+            runAsNonRoot: true            # Rechaza arrancar como root
+            runAsUser: 1000               # UID numérico del usuario "node" de la imagen (K8s no verifica nombres)
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service           # Nombre usado en: minikube service backend-service -n practica-s08 --url
+  namespace: practica-s08
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: practica-s08
+spec:
+  type: NodePort                  # Abre un puerto en cada nodo para exponer el servicio fuera del clúster
+  selector:
+    app.kubernetes.io/name: backend   # Pods destino
+  ports:
+    - name: http
+      port: 80                    # Puerto del Service dentro del clúster
+      targetPort: 3000            # Puerto del contenedor (APP_PORT)
+      nodePort: 30080             # Puerto externo fijo (rango permitido 30000-32767); si se omite, K8s asigna uno
+      protocol: TCP
